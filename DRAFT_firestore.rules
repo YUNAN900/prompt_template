@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Primitives
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    
+    // Admin check - simple exists check as per skill
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // 2. Validation Blueprints
+    function isValidPrompt(p) {
+      return p.title is string && p.title.size() <= 20 &&
+             p.description is string && p.description.size() <= 100 &&
+             p.content is string && p.content.size() <= 5000 &&
+             p.authorId == request.auth.uid &&
+             p.authorName is string &&
+             p.scene in ['SRT', 'Custom'] &&
+             p.usageCount is number &&
+             p.favoriteCount is number &&
+             p.isPublic is bool &&
+             p.isOfficial is bool &&
+             p.createdAt == request.time &&
+             p.updatedAt == request.time;
+    }
+
+    // 4. Fortress Rules
+    match /prompts/{promptId} {
+      allow get: if isSignedIn() && (existing().isPublic == true || existing().authorId == request.auth.uid);
+      allow list: if isSignedIn() && (resource.data.isPublic == true || resource.data.authorId == request.auth.uid);
+      
+      allow create: if isSignedIn() && isValidId(promptId) && isValidPrompt(incoming()) && 
+                    (incoming().isOfficial == false || isAdmin());
+      
+      allow update: if isSignedIn() && isValidId(promptId) && (
+        // Case: Author updates content or settings
+        (existing().authorId == request.auth.uid && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'content', 'scene', 'isPublic', 'updatedAt']) &&
+         incoming().title.size() <= 20 && incoming().description.size() <= 100 && incoming().updatedAt == request.time) ||
+        // Case: System/Other increments usage/favorites (Note: in a real app this might be more complex, but for simplicity here)
+        (incoming().diff(existing()).affectedKeys().hasOnly(['usageCount', 'favoriteCount', 'updatedAt']) && incoming().updatedAt == request.time) ||
+        // Case: Admin update
+        isAdmin()
+      );
+      
+      allow delete: if isSignedIn() && (existing().authorId == request.auth.uid || isAdmin());
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn(); // Basic profile read
+      allow create, update: if isSignedIn() && request.auth.uid == userId && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'email']) &&
+                    (incoming().isAdmin == existing().isAdmin || !incoming().keys().contains('isAdmin'));
+      
+      match /favorites/{favoriteId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+  }
+}

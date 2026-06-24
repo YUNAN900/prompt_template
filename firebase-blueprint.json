@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "prompt": {
+      "title": "Prompt",
+      "description": "An AI prompt template",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Title of the prompt, max 20 chars" },
+        "description": { "type": "string", "description": "Short description, max 100 chars" },
+        "content": { "type": "string", "description": "The actual prompt text" },
+        "authorName": { "type": "string", "description": "Name of the creator" },
+        "authorId": { "type": "string", "description": "UID of the creator" },
+        "scene": { "type": "string", "enum": ["SRT", "Custom"], "description": "Usage scenario" },
+        "usageCount": { "type": "number", "description": "Number of times used" },
+        "favoriteCount": { "type": "number", "description": "Number of times favorited" },
+        "isPublic": { "type": "boolean", "description": "Whether it is visible in the square" },
+        "isOfficial": { "type": "boolean", "description": "Whether it is an official template" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "authorId", "scene", "createdAt"]
+    },
+    "favorite": {
+      "title": "Favorite",
+      "description": "A user's favorited prompt reference",
+      "type": "object",
+      "properties": {
+        "promptId": { "type": "string", "description": "ID of the favorited prompt" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["promptId", "addedAt"]
+    },
+    "user": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "isAdmin": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "/prompts/{promptId}": {
+      "schema": "prompt",
+      "description": "Collection of all prompts"
+    },
+    "/users/{userId}/favorites/{favoriteId}": {
+      "schema": "favorite",
+      "description": "Subcollection of a user's favorites"
+    },
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User profiles"
+    }
+  }
+}

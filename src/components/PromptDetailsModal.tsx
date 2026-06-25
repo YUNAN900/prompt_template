@@ -1,36 +1,65 @@
+import { Copy, Edit3, FlaskConical, Heart, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { PromptTemplate } from '../types';
-import { X, Copy, Check, Heart, User, Calendar, Trash2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useState } from 'react';
 import { cn } from '../lib/utils';
+
 interface PromptDetailsModalProps {
   prompt: PromptTemplate | null;
   isFavorite: boolean;
   onClose: () => void;
   onFavoriteToggle: () => void;
-  onDelete?: (id: string) => void;
+  onClone?: (prompt: PromptTemplate) => void;
+  onEdit?: (prompt: PromptTemplate) => void;
+  onTest?: (prompt: PromptTemplate) => void;
   currentUserId?: string | null;
 }
 
-export default function PromptDetailsModal({ 
-  prompt, 
-  isFavorite, 
-  onClose, 
-  onFavoriteToggle,
-  onDelete,
-  currentUserId
-}: PromptDetailsModalProps) {
-  const [copied, setCopied] = useState(false);
+function getSceneLabel(prompt: PromptTemplate) {
+  if (prompt.scene === 'SRT') return 'SRT 分镜提示词';
+  if (prompt.scene === 'Custom') return '全能参考分镜提示词';
+  return 'AI通用对话提示词';
+}
 
+function ReadOnlyText({
+  label,
+  value,
+  scrollable = false,
+}: {
+  label: string;
+  value: string;
+  scrollable?: boolean;
+}) {
+  return (
+    <section className="space-y-2">
+      <p className="text-xs font-medium text-zinc-500">{label}</p>
+      <div
+        className={cn(
+          'min-h-10 px-0 py-1 text-sm leading-relaxed text-zinc-200',
+          scrollable && 'max-h-64 overflow-y-auto pr-3 details-scrollbar'
+        )}
+      >
+        {value}
+      </div>
+    </section>
+  );
+}
+
+export default function PromptDetailsModal({
+  prompt,
+  isFavorite,
+  onClose,
+  onFavoriteToggle,
+  onClone,
+  onEdit,
+  onTest,
+  currentUserId,
+}: PromptDetailsModalProps) {
   if (!prompt) return null;
 
-  const isOwner = currentUserId && prompt.authorId === currentUserId;
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(prompt.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const isOwner = !!currentUserId && prompt.authorId === currentUserId;
+  const isOfficial = !!prompt.isOfficial;
+  const canClone = !isOwner && !isOfficial && !!prompt.allowClone;
+  const canViewPromptContent = isOwner || (!isOfficial && !!prompt.isPublic && !!prompt.allowClone);
 
   return (
     <AnimatePresence>
@@ -40,129 +69,85 @@ export default function PromptDetailsModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         />
+
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 20 }}
+          initial={{ opacity: 0, scale: 0.95, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative bg-[#1A1A1A] text-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] border border-white/10"
+          exit={{ opacity: 0, scale: 0.95, y: 16 }}
+          className="relative flex h-[72vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 text-white shadow-2xl"
         >
-          {/* Header */}
-          <div className="p-6 border-b border-white/5 flex justify-between items-start">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className={cn(
-                  "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider",
-                  prompt.scene === 'SRT' ? "bg-amber-500/20 text-amber-300" : "bg-blue-500/20 text-blue-300"
-                )}>
-                  {prompt.scene === 'SRT' ? 'SRT 分镜' : '自定义'}
-                </span>
-                {prompt.isOfficial && (
-                  <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-300 text-[10px] font-bold uppercase tracking-wider">
-                    官方推荐
-                  </span>
-                )}
-              </div>
-              <h2 className="text-2xl font-bold">{prompt.title}</h2>
-            </div>
-            <button 
+          <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 p-5">
+            <h2 className="text-base font-semibold">提示词详情</h2>
+            <button
+              type="button"
               onClick={onClose}
-              className="p-2 rounded-full hover:bg-white/5 transition-colors text-white/40"
+              className="rounded-full p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              aria-label="关闭"
             >
-              <X className="w-6 h-6 text-white/40" />
+              <X className="h-5 w-5" />
             </button>
           </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-8 bg-[#1a1a1a]">
-            <div className="mb-8">
-              <h4 className="text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3">Prompt 内容</h4>
-              <div className="bg-[#2A2A2A] border border-white/5 rounded-2xl p-6 relative group overflow-hidden">
-                <div className="absolute top-0 left-0 right-0 h-6 bg-white/5 flex items-center px-4 gap-1 border-b border-white/5">
-                   <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-                   <div className="w-1.5 h-1.5 rounded-full bg-white/20" />
-                </div>
-                <pre className="mt-4 text-sm font-mono whitespace-pre-wrap text-white/80 leading-relaxed max-h-[300px] overflow-y-auto custom-scrollbar">
-                  {prompt.content}
-                </pre>
-                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <button 
-                    onClick={handleCopy}
-                    className="p-2 bg-[#1A1A1A] rounded-lg shadow-sm hover:shadow-md transition-shadow text-white hover:text-pink-400"
-                  >
-                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
+          <div className="flex-1 space-y-4 overflow-hidden p-5">
+            <ReadOnlyText label="提示词名称" value={prompt.title || '未命名模板'} />
+            <ReadOnlyText label="模板简介" value={prompt.description || '暂无简介'} />
+
+            <div className="grid grid-cols-2 gap-3">
+              <ReadOnlyText label="创建作者" value={prompt.authorName || '未知作者'} />
+              <ReadOnlyText label="模板类别" value={getSceneLabel(prompt)} />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 rounded-2xl bg-[#2A2A2A] border border-white/5 flex items-center gap-3">
-                <User className="w-8 h-8 p-1.5 bg-[#1A1A1A] text-white/60 rounded-full" />
-                <div>
-                  <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">作者</p>
-                  <p className="text-sm font-semibold">{prompt.authorName}</p>
-                </div>
-              </div>
-              <div className="p-4 rounded-2xl bg-[#2A2A2A] border border-white/5 flex items-center gap-3">
-                <Calendar className="w-8 h-8 p-1.5 bg-[#1A1A1A] text-white/60 rounded-full" />
-                <div>
-                  <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">创建时间</p>
-                  <p className="text-sm font-semibold">
-                    {prompt.createdAt ? new Date(prompt.createdAt).toLocaleDateString() : '—'}
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="mt-8">
-              <h4 className="text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3">简介</h4>
-              <p className="text-sm text-white/60 italic leading-relaxed">
-                {prompt.description || '暂无描述'}
-              </p>
-            </div>
+            {canViewPromptContent && (
+              <ReadOnlyText label="模板提示词" value={prompt.content || '暂无提示词正文'} scrollable />
+            )}
           </div>
 
-          {/* Footer */}
-          <div className="p-6 border-t border-white/5 bg-[#1A1A1A] flex gap-3">
-            {isOwner && onDelete && (
-              <button 
-                onClick={() => {
-                  if (window.confirm('确定要删除这个模板吗？')) {
-                    onDelete(prompt.id);
-                  }
-                }}
-                className="w-12 h-12 flex items-center justify-center rounded-2xl border border-red-500/20 text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all active:scale-95"
-                title="删除模板"
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-zinc-800 p-4">
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={() => onEdit?.(prompt)}
+                className="flex h-10 items-center gap-2 rounded-lg border border-zinc-700 px-4 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
               >
-                <Trash2 className="w-5 h-5" />
+                <Edit3 className="h-4 w-4" />
+                编辑
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onFavoriteToggle}
+                className={cn(
+                  'flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-medium transition-colors',
+                  isFavorite
+                    ? 'border-yellow-500/30 bg-yellow-500/15 text-yellow-300'
+                    : 'border-zinc-700 text-zinc-300 hover:bg-zinc-800'
+                )}
+              >
+                <Heart className={cn('h-4 w-4', isFavorite && 'fill-current')} />
+                收藏
               </button>
             )}
-            <button 
-              onClick={handleCopy}
-              className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl bg-pink-500 text-white font-bold hover:shadow-lg hover:shadow-pink-500/30 transition-all active:scale-95"
+
+            {canClone && (
+              <button
+                type="button"
+                onClick={() => onClone?.(prompt)}
+                className="flex h-10 items-center gap-2 rounded-lg border border-zinc-700 px-4 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800"
+              >
+                <Copy className="h-4 w-4" />
+                克隆
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => onTest?.(prompt)}
+              className="flex h-10 items-center gap-2 rounded-lg border-none bg-gradient-to-r from-pink-500 to-purple-500 px-5 text-sm font-semibold text-white transition-transform active:scale-95"
             >
-              {copied ? (
-                <>
-                  <Check className="w-5 h-5" /> 已复制内容
-                </>
-              ) : (
-                <>
-                  <Copy className="w-5 h-5" /> 一键复制 Prompt
-                </>
-              )}
-            </button>
-            <button 
-              onClick={onFavoriteToggle}
-              className={cn(
-                "w-12 h-12 flex items-center justify-center rounded-2xl border transition-all active:scale-95",
-                isFavorite 
-                  ? "bg-yellow-500/20 border-yellow-500/30 text-yellow-500" 
-                  : "bg-white/5 border-white/10 text-white/40 hover:bg-yellow-500/10 hover:border-yellow-500/20 hover:text-yellow-400"
-              )}
-            >
-              <Heart className={cn("w-6 h-6", isFavorite && "fill-current")} />
+              <FlaskConical className="h-4 w-4" />
+              测试
             </button>
           </div>
         </motion.div>

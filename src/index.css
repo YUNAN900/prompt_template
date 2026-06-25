@@ -36,3 +36,21 @@
   background: rgba(26, 26, 26, 0.2);
 }
 
+.details-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.details-scrollbar::-webkit-scrollbar-track {
+  background: #18181b;
+  border-radius: 999px;
+}
+.details-scrollbar::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 999px;
+}
+.details-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+.details-scrollbar {
+  scrollbar-color: #3f3f46 #18181b;
+  scrollbar-width: thin;
+}

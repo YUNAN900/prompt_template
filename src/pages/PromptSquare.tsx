@@ -1,22 +1,19 @@
-import { useState, useEffect } from 'react';
-import { 
-  Search, 
-  TrendingUp, 
-  Clock, 
-  Star,
-  Globe,
-  Lock,
-  Wand2
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Clock, Heart, Lock, Search, TrendingUp, Wand2, Zap } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { PromptTemplate, SceneType } from '../types';
 import { cn } from '../lib/utils';
 import PromptDetailsModal from '../components/PromptDetailsModal';
 import PromptEditorModal from '../components/PromptEditorModal';
 import { NEW_SEED_DATA } from '../lib/seeds';
-import { motion, AnimatePresence } from 'motion/react';
 
 const STORAGE_KEY = 'local_prompts';
 const FAVORITES_KEY = 'local_favorites';
+const DEBUG_RETURN_KEY = 'debug_return_context';
+
+type TabType = 'square' | 'creations' | 'favorites';
+type SortType = 'latest' | 'hottest';
 
 function loadLocalPrompts(): PromptTemplate[] {
   try {
@@ -44,317 +41,399 @@ function saveFavorites(ids: string[]) {
   localStorage.setItem(FAVORITES_KEY, JSON.stringify(ids));
 }
 
-const OFFICIAL_SEEDS: PromptTemplate[] = NEW_SEED_DATA.map((s, i) => ({
-  ...s,
-  id: `seed-${i}`,
+function sceneLabel(scene: SceneType) {
+  if (scene === 'SRT') return 'SRT 分镜提示词';
+  if (scene === 'Custom') return '全能参考分镜提示词';
+  return 'AI通用对话提示词';
+}
+
+function sceneBadgeClass(scene: SceneType) {
+  if (scene === 'SRT') return 'bg-amber-500/15 text-amber-300';
+  if (scene === 'Custom') return 'bg-blue-500/15 text-blue-300';
+  return 'bg-purple-500/15 text-purple-300';
+}
+
+function getFavoriteCount(prompt: PromptTemplate, favorites: string[]) {
+  return (prompt.favoriteCount || 0) + (favorites.includes(prompt.id) ? 1 : 0);
+}
+
+function getCreatedTime(prompt: PromptTemplate) {
+  return prompt.createdAt ? new Date(prompt.createdAt).getTime() : 0;
+}
+
+const OFFICIAL_SEEDS: PromptTemplate[] = NEW_SEED_DATA.map((seed, index) => ({
+  ...seed,
+  id: `seed-${index}`,
   authorName: 'PromptHero 官方',
   authorId: 'system',
-  scene: (s.title.includes('SRT') || s.title.includes('分镜') || s.title.includes('提示词')) ? 'SRT' : 'Custom',
-  usageCount: 1000 - i * 10,
+  scene: seed.title.includes('SRT') || seed.title.includes('分镜') ? 'SRT' : 'Custom',
+  usageCount: 1000 - index * 10,
   favoriteCount: 0,
   isPublic: true,
   allowClone: true,
   isOfficial: true,
+  createdAt: `2026-01-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`,
 }));
 
-type TabType = 'official' | 'creations' | 'favorites';
-
 export default function PromptSquare() {
-  const [activeTab, setActiveTab] = useState<TabType>('official');
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<TabType>('square');
   const [myPrompts, setMyPrompts] = useState<PromptTemplate[]>(loadLocalPrompts);
   const [favorites, setFavorites] = useState<string[]>(loadFavorites);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedScene, setSelectedScene] = useState<SceneType | 'All'>('All');
-  const [sortBy, setSortBy] = useState<'recommend' | 'latest' | 'hottest'>('recommend');
+  const [sortBy, setSortBy] = useState<SortType>('latest');
   const [selectedPrompt, setSelectedPrompt] = useState<PromptTemplate | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState<Partial<PromptTemplate> | null>(null);
 
-  // Derive displayed prompts
+  useEffect(() => {
+    const raw = sessionStorage.getItem(DEBUG_RETURN_KEY);
+    if (!raw) return;
+
+    try {
+      const context = JSON.parse(raw) as {
+        type?: 'editor' | 'preview';
+        promptId?: string;
+        prompt?: Partial<PromptTemplate>;
+        activeTab?: TabType;
+      };
+      sessionStorage.removeItem(DEBUG_RETURN_KEY);
+
+      if (context.type === 'editor') {
+        setEditingPrompt(context.prompt || null);
+        setIsEditorOpen(true);
+        return;
+      }
+
+      if (context.type === 'preview') {
+        if (context.activeTab) setActiveTab(context.activeTab);
+        const allPrompts = [...OFFICIAL_SEEDS, ...loadLocalPrompts()];
+        const matchedPrompt = allPrompts.find(prompt => prompt.id === context.promptId) || context.prompt;
+        if (matchedPrompt) setSelectedPrompt(matchedPrompt as PromptTemplate);
+      }
+    } catch {
+      sessionStorage.removeItem(DEBUG_RETURN_KEY);
+    }
+  }, []);
+
+  const squarePrompts = [...OFFICIAL_SEEDS, ...myPrompts.filter(prompt => prompt.isPublic)];
+
   let basePrompts: PromptTemplate[] = [];
-  if (activeTab === 'official') {
-    basePrompts = OFFICIAL_SEEDS;
+  if (activeTab === 'square') {
+    basePrompts = squarePrompts;
   } else if (activeTab === 'creations') {
     basePrompts = myPrompts;
   } else {
-    basePrompts = [...OFFICIAL_SEEDS, ...myPrompts].filter(p => favorites.includes(p.id));
+    basePrompts = [...OFFICIAL_SEEDS, ...myPrompts].filter(prompt => favorites.includes(prompt.id));
   }
 
-  if (selectedScene !== 'All') {
-    basePrompts = basePrompts.filter(p => p.scene === selectedScene);
-  }
-
-  if (activeTab === 'official') {
-    basePrompts = [...basePrompts].sort((a, b) => {
-      if (sortBy === 'latest') {
-        return (b.createdAt || '').localeCompare(a.createdAt || '');
-      }
+  const filteredPrompts = basePrompts
+    .filter(prompt => selectedScene === 'All' || prompt.scene === selectedScene)
+    .filter(prompt => prompt.title.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    .sort((a, b) => {
       if (sortBy === 'hottest') return (b.usageCount || 0) - (a.usageCount || 0);
-      if (a.isOfficial !== b.isOfficial) return a.isOfficial ? -1 : 1;
-      return (b.usageCount || 0) - (a.usageCount || 0);
+      return getCreatedTime(b) - getCreatedTime(a);
     });
-  }
-
-  const filteredPrompts = basePrompts.filter(p =>
-    p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
 
   const handleFavoriteToggle = (promptId: string) => {
-    const isFav = favorites.includes(promptId);
-    const next = isFav ? favorites.filter(id => id !== promptId) : [...favorites, promptId];
+    const isFavorite = favorites.includes(promptId);
+    const next = isFavorite ? favorites.filter(id => id !== promptId) : [...favorites, promptId];
     setFavorites(next);
     saveFavorites(next);
   };
 
   const handleDelete = (id: string) => {
-    const next = myPrompts.filter(p => p.id !== id);
+    const next = myPrompts.filter(prompt => prompt.id !== id);
     setMyPrompts(next);
     saveLocalPrompts(next);
     setSelectedPrompt(null);
   };
 
+  const handleClone = (prompt: PromptTemplate) => {
+    const clonedPrompt: PromptTemplate = {
+      ...prompt,
+      id: `local-${Date.now()}`,
+      title: `${prompt.title} 副本`.slice(0, 50),
+      authorName: '我',
+      authorId: 'local',
+      usageCount: 0,
+      favoriteCount: 0,
+      isOfficial: false,
+      isPublic: false,
+      allowClone: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const next = [clonedPrompt, ...myPrompts];
+    setMyPrompts(next);
+    saveLocalPrompts(next);
+    setActiveTab('creations');
+    setSelectedPrompt(clonedPrompt);
+  };
+
+  const handleEditFromPreview = (prompt: PromptTemplate) => {
+    setSelectedPrompt(null);
+    setEditingPrompt(prompt);
+    setIsEditorOpen(true);
+  };
+
+  const handleTest = (prompt: PromptTemplate) => {
+    sessionStorage.setItem('debug_template', JSON.stringify(prompt));
+    sessionStorage.setItem(
+      DEBUG_RETURN_KEY,
+      JSON.stringify({
+        type: 'preview',
+        promptId: prompt.id,
+        prompt,
+        activeTab,
+      })
+    );
+    setSelectedPrompt(null);
+    navigate('/debug');
+  };
+
   const handleSave = (data: Partial<PromptTemplate>) => {
     if (editingPrompt?.id) {
-      const next = myPrompts.map(p =>
-        p.id === editingPrompt.id ? { ...p, ...data, updatedAt: new Date().toISOString() } : p
+      const next = myPrompts.map(prompt =>
+        prompt.id === editingPrompt.id ? { ...prompt, ...data, updatedAt: new Date().toISOString() } : prompt
       );
       setMyPrompts(next);
       saveLocalPrompts(next);
     } else {
       const newPrompt: PromptTemplate = {
         id: `local-${Date.now()}`,
+        title: data.title || '未命名模板',
+        description: data.description || '',
+        content: data.content || '',
+        scene: (data.scene || 'SRT') as SceneType,
         authorName: '我',
         authorId: 'local',
         usageCount: 0,
         favoriteCount: 0,
+        isPublic: data.isPublic ?? false,
+        allowClone: data.allowClone ?? false,
         isOfficial: false,
-        allowClone: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        ...(data as PromptTemplate),
       };
       const next = [newPrompt, ...myPrompts];
       setMyPrompts(next);
       saveLocalPrompts(next);
       setActiveTab('creations');
     }
+
     setIsEditorOpen(false);
     setEditingPrompt(null);
   };
 
+  const tabs = [
+    { id: 'square', label: '提示词广场' },
+    { id: 'creations', label: '我的创建' },
+    { id: 'favorites', label: `我的收藏 (${favorites.length})` },
+  ] satisfies { id: TabType; label: string }[];
+
+  const sceneOptions = [
+    { id: 'All', label: '全部类型' },
+    { id: 'SRT', label: 'SRT 分镜提示词' },
+    { id: 'Custom', label: '全能参考分镜提示词' },
+    { id: 'Agent', label: 'AI通用对话提示词' },
+  ] satisfies { id: SceneType | 'All'; label: string }[];
+
   const sortOptions = [
-    { id: 'recommend', name: '推荐', icon: Star },
-    { id: 'latest', name: '最新', icon: Clock },
-    { id: 'hottest', name: '最热', icon: TrendingUp },
-  ];
+    { id: 'latest', label: '最新', icon: Clock },
+    { id: 'hottest', label: '最热', icon: TrendingUp },
+  ] satisfies { id: SortType; label: string; icon: typeof Clock }[];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2">
-          <Wand2 className="w-5 h-5 text-white" />
+          <Wand2 className="h-5 w-5 text-white" />
           <h1 className="text-xl font-bold">提示词库</h1>
         </div>
         <button
-          onClick={() => { setEditingPrompt(null); setIsEditorOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg font-bold transition-colors shadow-sm text-sm"
+          onClick={() => {
+            setEditingPrompt(null);
+            setIsEditorOpen(true);
+          }}
+          className="rounded-lg bg-pink-500 px-4 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-pink-600"
         >
           创建提示词模板
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <button
-          onClick={() => setActiveTab('official')}
-          className={cn(
-            "px-4 py-2 rounded-full text-sm font-bold transition-all",
-            activeTab === 'official'
-              ? "bg-pink-500 text-white"
-              : "bg-[#2A2A2A] text-white/60 hover:bg-[#3A3A3A] hover:text-white"
-          )}
-        >
-          官方推荐
-        </button>
-        <button
-          onClick={() => setActiveTab('creations')}
-          className={cn(
-            "px-4 py-2 rounded-full text-sm font-bold transition-all",
-            activeTab === 'creations'
-              ? "bg-pink-500 text-white"
-              : "bg-[#2A2A2A] text-white/60 hover:bg-[#3A3A3A] hover:text-white"
-          )}
-        >
-          我的创建
-        </button>
-        <button
-          onClick={() => setActiveTab('favorites')}
-          className={cn(
-            "px-4 py-2 rounded-full text-sm font-bold transition-all",
-            activeTab === 'favorites'
-              ? "bg-pink-500 text-white"
-              : "bg-[#2A2A2A] text-white/60 hover:bg-[#3A3A3A] hover:text-white"
-          )}
-        >
-          我的收藏 ({favorites.length})
-        </button>
+      <div className="flex flex-wrap gap-2">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={cn(
+              'rounded-full px-4 py-2 text-sm font-bold transition-all',
+              activeTab === tab.id ? 'bg-pink-500 text-white' : 'bg-[#2A2A2A] text-white/60 hover:bg-[#3A3A3A] hover:text-white'
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* Sort (official tab only) */}
-      {activeTab === 'official' && (
+      <section className="grid gap-3 rounded-2xl border border-white/10 bg-[#242424] p-4 lg:grid-cols-[1fr_auto_auto]">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/20" />
+          <input
+            type="text"
+            placeholder="按名称搜索提示词模板"
+            value={searchQuery}
+            onChange={event => setSearchQuery(event.target.value)}
+            className="h-11 w-full rounded-xl border border-white/5 bg-[#1A1A1A] pl-11 pr-4 text-sm text-white outline-none transition-all placeholder:text-white/20 focus:border-pink-500/30"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {sceneOptions.map(option => (
+            <button
+              key={option.id}
+              onClick={() => setSelectedScene(option.id)}
+              className={cn(
+                'h-11 rounded-xl px-3 text-xs font-bold transition-all',
+                selectedScene === option.id ? 'bg-pink-500 text-white' : 'bg-[#1A1A1A] text-white/45 hover:text-white'
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
         <div className="flex gap-2">
-          {sortOptions.map(opt => {
-            const Icon = opt.icon;
+          {sortOptions.map(option => {
+            const Icon = option.icon;
             return (
               <button
-                key={opt.id}
-                onClick={() => setSortBy(opt.id as typeof sortBy)}
+                key={option.id}
+                onClick={() => setSortBy(option.id)}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all",
-                  sortBy === opt.id
-                    ? "bg-pink-500 text-white"
-                    : "bg-[#2A2A2A] text-white/40 hover:bg-[#3A3A3A] hover:text-white"
+                  'flex h-11 items-center gap-1.5 rounded-xl px-3 text-xs font-bold transition-all',
+                  sortBy === option.id ? 'bg-pink-500 text-white' : 'bg-[#1A1A1A] text-white/45 hover:text-white'
                 )}
               >
-                <Icon className="w-3.5 h-3.5" /> {opt.name}
+                <Icon className="h-3.5 w-3.5" />
+                {option.label}
               </button>
             );
           })}
         </div>
-      )}
+      </section>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-        <input
-          type="text"
-          placeholder="搜索提示词..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          className="w-full h-11 pl-11 pr-4 bg-[#2A2A2A] border border-white/5 rounded-2xl outline-none focus:border-pink-500/20 transition-all text-sm text-white placeholder:text-white/20"
-        />
-      </div>
-
-      {/* Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         <AnimatePresence mode="popLayout">
-          {activeTab === 'creations' ? (
-            filteredPrompts.map((p) => (
-              <motion.div
-                key={p.id}
-                layout
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="bg-[#2A2A2A] text-white rounded-2xl p-5 border border-[#ffffff]/10 shadow-sm flex flex-col cursor-pointer hover:border-pink-500/50 transition-colors"
-                onClick={() => setSelectedPrompt(p)}
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300">
-                    {p.scene === 'SRT' ? 'SRT模式' : '自定义模式'}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {p.isPublic ? (
-                      <Globe className="w-3.5 h-3.5 text-green-400" />
-                    ) : (
-                      <Lock className="w-3.5 h-3.5 text-white/20" />
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleFavoriteToggle(p.id); }}
-                      className="text-white/40 hover:text-yellow-400 transition-colors"
-                    >
-                      <Star className={cn("w-4 h-4", favorites.includes(p.id) && "fill-yellow-400 text-yellow-400")} />
-                    </button>
-                  </div>
+          {filteredPrompts.map(prompt => (
+            <motion.div
+              key={prompt.id}
+              layout
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className="flex cursor-pointer flex-col rounded-2xl border border-white/10 bg-[#2A2A2A] p-5 text-white shadow-sm transition-colors hover:border-pink-500/50"
+              onClick={() => setSelectedPrompt(prompt)}
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className={cn('rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider', sceneBadgeClass(prompt.scene))}>
+                  {sceneLabel(prompt.scene)}
                 </div>
-                <h3 className="text-base font-bold mb-1 truncate">{p.title}</h3>
-                <p className="text-xs text-white/50 line-clamp-1 mb-4 flex-1">{p.description || '暂无简介'}</p>
-                <div className="flex items-center justify-between text-[11px] text-white/40">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-4 h-4 rounded-full bg-white/10 flex items-center justify-center font-bold text-[8px]">
-                      {p.authorName?.[0] || '我'}
+                <div className="flex items-center gap-2">
+                  {activeTab !== 'square' && !prompt.isOfficial && !prompt.isPublic && (
+                    <Lock className="h-3.5 w-3.5 text-white/20" />
+                  )}
+                </div>
+              </div>
+
+              <h3 className="mb-1 truncate text-base font-bold">{prompt.title}</h3>
+              <p className="mb-4 line-clamp-2 flex-1 text-xs leading-relaxed text-white/50">
+                {prompt.description || '暂无简介'}
+              </p>
+
+              {activeTab !== 'creations' && (
+                <div className="flex items-center justify-between gap-3 border-t border-white/5 pt-3 text-[11px] text-zinc-500">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/10 text-[8px] font-bold">
+                      {prompt.authorName?.[0] || 'P'}
                     </div>
-                    {p.authorName || '我'}
+                    <span className="truncate">{prompt.authorName || 'PromptHero'}</span>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="flex items-center gap-1">
+                      <Zap className="h-3.5 w-3.5" />
+                      {prompt.usageCount || 0}
+                    </span>
                     <button
-                      onClick={(e) => { e.stopPropagation(); setEditingPrompt(p); setIsEditorOpen(true); }}
-                      className="hover:text-white transition-colors"
+                      type="button"
+                      onClick={event => {
+                        event.stopPropagation();
+                        handleFavoriteToggle(prompt.id);
+                      }}
+                      className="flex items-center gap-1 transition-colors hover:text-zinc-300"
+                      aria-label="收藏"
                     >
-                      编辑
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
-                      className="hover:text-red-400 transition-colors"
-                    >
-                      删除
+                      <Heart className={cn('h-3.5 w-3.5', favorites.includes(prompt.id) && 'fill-current')} />
+                      {getFavoriteCount(prompt, favorites)}
                     </button>
                   </div>
                 </div>
-              </motion.div>
-            ))
-          ) : (
-            filteredPrompts.map((prompt) => (
-              <motion.div
-                key={prompt.id}
-                layout
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="bg-[#2A2A2A] text-white rounded-2xl p-5 border border-[#ffffff]/10 shadow-sm flex flex-col cursor-pointer hover:border-pink-500/50 transition-colors"
-                onClick={() => setSelectedPrompt(prompt)}
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <div className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300">
-                    {prompt.scene === 'SRT' ? 'SRT模式' : '自定义模式'}
-                  </div>
+              )}
+
+              {activeTab === 'creations' && (
+                <div className="mt-3 flex justify-end gap-3 border-t border-white/5 pt-3 text-xs text-white/45">
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleFavoriteToggle(prompt.id); }}
-                    className="text-white/40 hover:text-yellow-400 transition-colors"
+                    onClick={event => {
+                      event.stopPropagation();
+                      setEditingPrompt(prompt);
+                      setIsEditorOpen(true);
+                    }}
+                    className="transition-colors hover:text-white"
                   >
-                    <Star className={cn("w-4 h-4", favorites.includes(prompt.id) && "fill-yellow-400 text-yellow-400")} />
+                    编辑
+                  </button>
+                  <button
+                    onClick={event => {
+                      event.stopPropagation();
+                      handleDelete(prompt.id);
+                    }}
+                    className="transition-colors hover:text-red-400"
+                  >
+                    删除
                   </button>
                 </div>
-                <h3 className="text-base font-bold mb-1 truncate">{prompt.title}</h3>
-                <p className="text-xs text-white/50 line-clamp-1 mb-4 flex-1">{prompt.description || '暂无简介'}</p>
-                <div className="flex items-center gap-1.5 text-[11px] text-white/40">
-                  <div className="w-4 h-4 rounded-full bg-white/10 flex items-center justify-center font-bold text-[8px]">
-                    {prompt.authorName?.[0] || '方'}
-                  </div>
-                  {prompt.authorName || '剧梦官方'}
-                </div>
-              </motion.div>
-            ))
-          )}
+              )}
+            </motion.div>
+          ))}
         </AnimatePresence>
       </div>
 
-      {/* No results */}
       {filteredPrompts.length === 0 && (
-        <div className="text-center py-20 bg-[#2A2A2A] rounded-[32px] border border-dashed border-white/10 flex flex-col items-center gap-4">
-          <p className="text-white/40 font-medium whitespace-pre-line">
-            没找到相关的提示词
-          </p>
+        <div className="flex flex-col items-center gap-4 rounded-[32px] border border-dashed border-white/10 bg-[#2A2A2A] py-20 text-center">
+          <p className="font-medium text-white/40">没找到相关的提示词模板</p>
         </div>
       )}
 
-      {/* Details Modal */}
       <PromptDetailsModal
         prompt={selectedPrompt}
         isFavorite={selectedPrompt ? favorites.includes(selectedPrompt.id) : false}
         onClose={() => setSelectedPrompt(null)}
         onFavoriteToggle={() => selectedPrompt && handleFavoriteToggle(selectedPrompt.id)}
-        onDelete={handleDelete}
+        onClone={handleClone}
+        onEdit={handleEditFromPreview}
+        onTest={handleTest}
         currentUserId="local"
       />
 
-      {/* Editor Modal */}
       <PromptEditorModal
         isOpen={isEditorOpen}
         prompt={editingPrompt}
-        onClose={() => { setIsEditorOpen(false); setEditingPrompt(null); }}
+        onClose={() => {
+          setIsEditorOpen(false);
+          setEditingPrompt(null);
+        }}
         onSave={handleSave}
       />
     </div>
